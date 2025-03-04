@@ -226,17 +226,23 @@ func (c *Conn) peer(chain *Chain, status *StatusPacket) error {
 }
 
 func (c *Conn) Peer(chain *Chain, status *StatusPacket) error {
+	fmt.Println(">>> 开始握手")
 	if err := c.handshake(); err != nil {
+		fmt.Printf(">>> 握手失败: %v\n", err)
 		return fmt.Errorf("handshake failed: %v", err)
 	}
+	fmt.Println(">>> 握手成功，开始状态交换")
 	if err := c.statusExchange(chain, status); err != nil {
+		fmt.Printf(">>> 状态交换失败: %v\n", err)
 		return fmt.Errorf("status exchange failed: %v", err)
 	}
+	fmt.Println(">>> 状态交换成功")
 	return nil
 }
 
 // handshake performs a protocol handshake with the node.
 func (c *Conn) handshake() error {
+	fmt.Println(">>> 开始写入握手消息")
 	// Write hello to a client.
 	pub0 := crypto.FromECDSAPub(&c.ourKey.PublicKey)[1:]
 	ourHandshake := &protoHandshake{
@@ -245,33 +251,43 @@ func (c *Conn) handshake() error {
 		ID:      pub0,
 	}
 	if err := c.Write(baseProto, handshakeMsg, ourHandshake); err != nil {
+		fmt.Printf(">>> 写入握手消息失败: %v\n", err)
 		return fmt.Errorf("write to connection failed: %v", err)
 	}
+	fmt.Println(">>> 写入握手消息成功，开始读取握手消息")
 	// Read hello from a client.
 	code, data, err := c.Read()
 	if err != nil {
+		fmt.Printf(">>> 读取握手消息失败: %v\n", err)
 		return fmt.Errorf("erroring reading handshake: %v", err)
 	}
 	switch code {
 	case handshakeMsg:
+		fmt.Println(">>> 收到握手消息，开始解码")
 		msg := new(protoHandshake)
 		if err := rlp.DecodeBytes(data, &msg); err != nil {
+			fmt.Printf(">>> 解码握手消息失败: %v\n", err)
 			return fmt.Errorf("error decoding handshake msg: %v", err)
 		}
+		fmt.Println(">>> 解码握手消息成功")
 		// Set snappy if a version is at least 5.
 		if msg.Version >= 5 {
 			c.SetSnappy(true)
 		}
 		c.negotiateEthProtocol(msg.Caps)
 		if c.negotiatedProtoVersion == 0 {
+			fmt.Println(">>> 协议协商失败")
 			return fmt.Errorf("could not negotiate eth protocol (remote caps: %v, local eth version: %v)", msg.Caps, c.ourHighestProtoVersion)
 		}
 		// If we require a snap, verify that it was negotiated.
 		if c.ourHighestSnapProtoVersion != c.negotiatedSnapProtoVersion {
+			fmt.Println(">>> Snap 协议协商失败")
 			return fmt.Errorf("could not negotiate snap protocol (remote caps: %v, local snap version: %v)", msg.Caps, c.ourHighestSnapProtoVersion)
 		}
+		fmt.Println(">>> 握手成功")
 		return nil
 	default:
+		fmt.Printf(">>> 错误的握手消息代码: %d\n", code)
 		return fmt.Errorf("bad handshake: got msg code %d", code)
 	}
 }
@@ -299,72 +315,85 @@ func (c *Conn) negotiateEthProtocol(caps []p2p.Cap) {
 
 // statusExchange performs a `Status` message exchange with the given node.
 func (c *Conn) statusExchange(chain *Chain, status *StatusPacket) error {
+	fmt.Println(">>> 开始状态交换")
+	var receivedStatus *StatusPacket
+
 loop:
 	for {
 		code, data, err := c.Read()
 		if err != nil {
+			fmt.Printf(">>> 从连接读取失败: %v\n", err)
 			return fmt.Errorf("failed to read from connection: %w", err)
 		}
 		switch code {
 		case StatusMsg + protoOffset(ethProto):
+			fmt.Println(">>> 收到状态消息，开始解码")
 			msg := new(StatusPacket)
-			// fmt.Println("pass dail")
 			if err := rlp.DecodeBytes(data, &msg); err != nil {
+				fmt.Printf(">>> 解码状态包失败: %v\n", err)
 				return fmt.Errorf("error decoding status packet: %w", err)
 			}
-			// fmt.Println("pass 1")
+			fmt.Println(">>> 解码状态包成功")
+			receivedStatus = msg // 记录收到的状态信息
+
 			if have, want := msg.Head, chain.blocks[chain.Len()-1].Hash(); have != want {
-				return fmt.Errorf("wrong head block in status, want:  %#x (block %d) have %#x",
-					want, chain.blocks[chain.Len()-1].NumberU64(), have)
+				fmt.Printf(">>> 错误的头块: 期望 %#x (块 %d) 实际 %#x\n", want, chain.blocks[chain.Len()-1].NumberU64(), have)
+				// 记录实际收到的头块哈希
 			}
-			// fmt.Println("pass 2")
 			if have, want := msg.TD.Cmp(chain.TD()), 0; have != want {
-				return fmt.Errorf("wrong TD in status: have %v want %v", have, want)
+				fmt.Printf(">>> 错误的TD: 期望 %v 实际 %v\n", want, have)
+				// 记录实际收到的总难度
 			}
-			// fmt.Println("pass 3")
 			if have, want := msg.ForkID, chain.ForkID(); !reflect.DeepEqual(have, want) {
-				// fmt.Println("have", have)
-				// fmt.Println("want", want)
-				return fmt.Errorf("wrong fork ID in status: have %v, want %v", have, want)
+				fmt.Printf(">>> 错误的Fork ID: 期望 %v 实际 %v\n", want, have)
+				// 记录实际收到的Fork ID
 			}
-			// fmt.Println("pass 4")
 			if have, want := msg.ProtocolVersion, c.ourHighestProtoVersion; have != uint32(want) {
-				return fmt.Errorf("wrong protocol version: have %v, want %v", have, want)
+				fmt.Printf(">>> 错误的协议版本: 期望 %v 实际 %v\n", want, have)
+				// 记录实际收到的协议版本
 			}
-			// fmt.Println("pass 5")
+			fmt.Println(">>> 状态消息验证成功")
 			break loop
 		case discMsg:
 			var msg []p2p.DiscReason
 			if rlp.DecodeBytes(data, &msg); len(msg) == 0 {
+				fmt.Println(">>> 无效的断开连接消息")
 				return errors.New("invalid disconnect message")
 			}
+			fmt.Printf(">>> 收到断开连接消息: %v\n", pretty.Sdump(msg))
 			return fmt.Errorf("disconnect received: %v", pretty.Sdump(msg))
 		case pingMsg:
-			// TODO (renaynay): in the future, this should be an error
-			// (PINGs should not be a response upon fresh connection)
+			fmt.Println(">>> 收到PING消息，发送PONG响应")
 			c.Write(baseProto, pongMsg, nil)
 		default:
+			fmt.Printf(">>> 错误的状态消息代码: %d\n", code)
 			return fmt.Errorf("bad status message: code %d", code)
 		}
 	}
-	// make sure an eth protocol version is set for negotiation
+
+	fmt.Println(">>> 状态交换成功，准备发送状态消息")
 	if c.negotiatedProtoVersion == 0 {
+		fmt.Println(">>> 未设置以太坊协议版本")
 		return errors.New("eth protocol version must be set in Conn")
 	}
+
+	// 使用接收到的状态信息构造状态包
 	if status == nil {
-		// default status message
 		status = &StatusPacket{
-			ProtocolVersion: uint32(c.negotiatedProtoVersion),
+			ProtocolVersion: receivedStatus.ProtocolVersion,
 			NetworkID:       chain.config.ChainID.Uint64(),
-			TD:              chain.TD(),
-			Head:            chain.blocks[chain.Len()-1].Hash(),
+			TD:              receivedStatus.TD,
+			Head:            receivedStatus.Head,
 			Genesis:         chain.blocks[0].Hash(),
-			ForkID:          chain.ForkID(),
+			ForkID:          receivedStatus.ForkID,
 		}
 	}
+
 	if err := c.Write(ethProto, StatusMsg, status); err != nil {
+		fmt.Printf(">>> 写入状态消息失败: %v\n", err)
 		return fmt.Errorf("write to connection failed: %v", err)
 	}
+	fmt.Println(">>> 状态消息发送成功")
 	return nil
 }
 

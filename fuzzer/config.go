@@ -24,7 +24,7 @@ const (
 	SequenceLength  = 10
 	MutateCount     = 100
 	OutputDir       = "./output"
-	SaveFlag        = false
-	PacketSleepTime = 10 * time.Millisecond // Single packet send and waiting time
+	SaveFlag        = true
+	PacketSleepTime = 1000 * time.Millisecond // Single packet send and waiting time
 	ShouldTrace     = false
 )

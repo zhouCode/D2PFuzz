@@ -166,7 +166,9 @@ func (m *EthMaker) PacketStart(traceOutput io.Writer, seed eth.Packet, stats *UD
 		}
 	}
 
-	for i := 1; i <= MutateCount; i++ {
+	time.Sleep(PacketSleepTime)
+	//for i := 1; i <= MutateCount; i++ {
+	for i := 1; i <= 2; i++ {
 		fmt.Printf("Start Mutate count: %d\n", i)
 		mutateSeed := cloneAndMutateEthPacket(mutator, currentSeed, m.SuiteList[0].Chain())
 
@@ -491,12 +493,12 @@ func (m *EthMaker) handleTransactionPacket(p *eth.TransactionsPacket, suite *eth
 func (m *EthMaker) handleGetBlockHeadersPacket(p *eth.GetBlockHeadersPacket, suite *eth.Suite) ethPacketTestResult {
 
 	// 修改包内容进行测试
-	// p.Origin.Number = 2944
-	// p.Amount = 11
-	// p.Skip = 18446744073709551615
-	// //p.Skip = 18446744073709551615
-	// p.Reverse = false
-	// p.Origin.Hash = common.Hash{} // 确保使用Number而不是Hash
+	p.Origin.Number = 1
+	p.Amount = 1
+	p.Skip = 1
+	//p.Skip = 18446744073709551615
+	p.Reverse = false
+	p.Origin.Hash = common.Hash{} // 确保使用Number而不是Hash
 
 	// 先进行语义检查
 	checkResults := checkGetBlockHeadersSemantics(p, suite.Chain())
